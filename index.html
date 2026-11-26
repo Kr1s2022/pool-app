@@ -20,8 +20,11 @@
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
     body { background: var(--bg); color: var(--text); padding: 16px; padding-bottom: 40px; min-height: 100vh; }
     .card { background: var(--section-bg); border-radius: 16px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
-    .balance-number { font-size: 42px; font-weight: 800; line-height: 1.1; }
     .balance-label { font-size: 15px; color: var(--hint); margin-bottom: 4px; }
+    .balance-row { display: flex; align-items: baseline; gap: 8px; }
+    .balance-number { font-size: 42px; font-weight: 800; line-height: 1.1; }
+    .btn-edit { background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px; color: var(--hint); }
+    .btn-edit:active { opacity: 0.6; }
     .btn { display: inline-flex; align-items: center; justify-content: center; width: 100%; padding: 14px; border-radius: 12px; border: none; font-size: 16px; font-weight: 600; cursor: pointer; background: var(--button); color: var(--button-text); margin-top: 16px; }
     .btn:active { opacity: 0.8; }
     .btn-secondary { background: var(--secondary-bg); color: var(--text); }
@@ -34,11 +37,14 @@
     .day.today { outline: 2px solid var(--link); outline-offset: -2px; }
     .day.marked { background: var(--button); color: var(--button-text); font-weight: 700; }
     .day .who { font-size: 9px; line-height: 1; opacity: 0.85; margin-top: 2px; }
-    .history-item { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--secondary-bg); font-size: 14px; }
+    .history-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--secondary-bg); font-size: 14px; gap: 6px; }
     .history-item:last-child { border-bottom: none; }
     .history-item .action { color: var(--hint); }
-    .history-item .plus { color: #2e7d32; font-weight: 600; }
-    .history-item .minus { color: var(--destructive); font-weight: 600; }
+    .history-item .plus { color: #2e7d32; font-weight: 600; flex-shrink: 0; }
+    .history-item .minus { color: var(--destructive); font-weight: 600; flex-shrink: 0; }
+    .history-item .text { flex: 1; min-width: 0; }
+    .delete-op { background: none; border: none; color: var(--hint); font-size: 20px; padding: 0 4px; cursor: pointer; line-height: 1; flex-shrink: 0; }
+    .delete-op:active { color: var(--destructive); }
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 100; }
     .modal { background: var(--section-bg); border-radius: 20px; padding: 24px; width: 100%; max-width: 360px; }
     .modal h3 { margin-bottom: 16px; font-size: 18px; }
@@ -61,14 +67,15 @@
   </div>
 
   <div id="app" class="hidden">
-    <!-- Карточка баланса -->
     <div class="card">
       <div class="balance-label">Осталось занятий</div>
-      <div class="balance-number" id="balance">—</div>
+      <div class="balance-row">
+        <div class="balance-number" id="balance">—</div>
+        <button class="btn-edit hidden" id="editBalanceBtn" title="Редактировать баланс">✏️</button>
+      </div>
       <button class="btn" id="topUpBtn">Пополнить баланс</button>
     </div>
 
-    <!-- Календарь -->
     <div class="card">
       <div class="calendar-header">
         <button id="prevMonth">‹</button>
@@ -78,14 +85,12 @@
       <div class="calendar-grid" id="calendarGrid"></div>
     </div>
 
-    <!-- История -->
     <div class="card">
       <h3 style="font-size:16px; margin-bottom:8px;">Последние операции</h3>
       <div id="historyList"></div>
     </div>
   </div>
 
-  <!-- Модальное окно пополнения -->
   <div id="topUpModal" class="modal-overlay hidden">
     <div class="modal">
       <h3>Пополнить баланс</h3>
@@ -97,21 +102,35 @@
     </div>
   </div>
 
+  <div id="editBalanceModal" class="modal-overlay hidden">
+    <div class="modal">
+      <h3>Изменить баланс</h3>
+      <input type="number" id="editBalanceInput" step="1" />
+      <div class="row">
+        <button class="btn btn-secondary" id="cancelEditBalance">Отмена</button>
+        <button class="btn" id="confirmEditBalance">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getDatabase, ref, onValue, push, set, remove, runTransaction }
+    import { getDatabase, ref, onValue, push, set, remove, runTransaction, get }
       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
     import { getAuth, signInWithEmailAndPassword, onAuthStateChanged }
- 	  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
     // ============================================================
-    // 🔧 НАСТРОЙКИ — ЗАМЕНИТЕ ЭТИ ЗНАЧЕНИЯ НА СВОИ
+    // 🔧 НАСТРОЙКИ — ВСТАВЬТЕ СВОИ ЗНАЧЕНИЯ
     // ============================================================
     const ALLOWED_IDS = [160035018, 987654321]; // ← Два разрешённых Telegram User ID
-	const USER_CREDENTIALS = {
- 	 160035018: { email: "user1@pool.local", password: "123456" },
- 	 987654321: { email: "user2@pool.local", password: "123456" }
-	};
+    const ADMIN_ID = 160035018;                  // user1 — может редактировать баланс и удалять записи
+
+    const USER_CREDENTIALS = {
+      160035018: { email: "user1@pool.local", password: "123456" },
+      987654321: { email: "user2@pool.local", password: "123456" }
+    };
+
     const firebaseConfig = {
       apiKey: "AIzaSyCehSHx8vfJuaZyYfd-dCsDZJpvqnPyoww",
 	  authDomain: "pool-info-d1061.firebaseapp.com",
@@ -130,37 +149,38 @@
 
     const $ = (id) => document.getElementById(id);
 
-    // --- Элементы UI ---
     const loadingEl = $("loading");
     const accessDeniedEl = $("accessDenied");
     const appEl = $("app");
     const balanceEl = $("balance");
+    const editBalanceBtn = $("editBalanceBtn");
     const calendarGrid = $("calendarGrid");
     const monthLabel = $("monthLabel");
     const historyList = $("historyList");
     const topUpModal = $("topUpModal");
     const topUpInput = $("topUpInput");
+    const editBalanceModal = $("editBalanceModal");
+    const editBalanceInput = $("editBalanceInput");
 
-    // --- Состояние ---
     let tgUser = null;
-    let currentYear, currentMonth; // месяц: 0–11
+    let currentYear, currentMonth;
     let globalState = null;
-    let userNames = {}; // { telegramId: "Имя" }
+    let userNames = {};
 
-    // --- Форматирование ---
     const MONTHS = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+    const SHORT_MONTHS = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"];
     const WEEKDAYS = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
 
     function formatDateKey(y, m, d) {
       return `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
     }
 
-    function parseDateKey(key) {
-      const [y, m, d] = key.split("-").map(Number);
-      return { y, m: m - 1, d };
+    function formatShortDate(dateKey) {
+      if (!dateKey) return "";
+      const parts = dateKey.split("-").map(Number);
+      return `${parts[2]} ${SHORT_MONTHS[parts[1]-1]}`;
     }
 
-    // --- Инициализация Telegram ---
     function initTelegram() {
       const tg = window.Telegram?.WebApp;
       if (!tg) {
@@ -197,30 +217,22 @@
       }
     }
 
-    // --- Аутентификация Firebase (анонимная) ---
     async function ensureAuth() {
-	  // Если уже вошли под нужным аккаунтом — не логинимся повторно
-	  if (auth.currentUser) return auth.currentUser;
-		
-	  console.log("=== AUTH DEBUG ===");
-	  console.log("tgUser.id:", tgUser.id, "| type:", typeof tgUser.id);
-	  console.log("USER_CREDENTIALS keys:", Object.keys(USER_CREDENTIALS));
-	  console.log("Looking up:", USER_CREDENTIALS[tgUser.id]);
-	  const creds = USER_CREDENTIALS[tgUser.id];
-	  if (!creds) {
-	    throw new Error("Для вашего Telegram ID не заданы учётные данные Firebase.");
-	  }
-	  const userCred = await signInWithEmailAndPassword(auth, creds.email, creds.password);
-	  return userCred.user;
-	}
+      if (auth.currentUser) return auth.currentUser;
 
-    // --- Подписка на данные ---
+      const creds = USER_CREDENTIALS[tgUser.id];
+      if (!creds) {
+        throw new Error("Для вашего Telegram ID не заданы учётные данные Firebase.");
+      }
+      const userCred = await signInWithEmailAndPassword(auth, creds.email, creds.password);
+      return userCred.user;
+    }
+
     function subscribeToData() {
       const stateRef = ref(db, "state");
       onValue(stateRef, (snapshot) => {
         globalState = snapshot.val();
         if (!globalState) {
-          // Первый запуск — создаём базовую структуру
           set(stateRef, { balance: 0, marked: {} });
           return;
         }
@@ -230,10 +242,16 @@
       });
     }
 
-    // --- Рендер ---
     function renderAll() {
       if (!globalState) return;
       balanceEl.textContent = globalState.balance ?? 0;
+
+      if (tgUser && tgUser.id === ADMIN_ID) {
+        editBalanceBtn.classList.remove("hidden");
+      } else {
+        editBalanceBtn.classList.add("hidden");
+      }
+
       renderCalendar();
       renderHistory();
     }
@@ -241,7 +259,6 @@
     function renderCalendar() {
       calendarGrid.innerHTML = "";
 
-      // Заголовок дней недели
       WEEKDAYS.forEach((wd) => {
         const el = document.createElement("div");
         el.className = "weekday";
@@ -250,7 +267,6 @@
       });
 
       const firstDay = new Date(currentYear, currentMonth, 1);
-      // Приводим к понедельнику: getDay() 0=Вс, 1=Пн, ...
       let startOffset = firstDay.getDay() - 1;
       if (startOffset < 0) startOffset = 6;
 
@@ -267,7 +283,7 @@
 
       for (let d = 1; d <= daysInMonth; d++) {
         const key = formatDateKey(currentYear, currentMonth, d);
-        const markInfo = globalState.marked?.[key]; // { by: telegramId, name: "..." }
+        const markInfo = globalState.marked?.[key];
         const isMarked = !!markInfo;
 
         const el = document.createElement("div");
@@ -291,9 +307,11 @@
     function renderHistory() {
       historyList.innerHTML = "";
       const ops = globalState.operations;
-      if (!ops) return;
+      if (!ops) {
+        historyList.innerHTML = '<p style="color:var(--hint); font-size:14px;">Пока нет операций</p>';
+        return;
+      }
 
-      // operations — объект, ключи автоматические; берём последние 10
       const entries = Object.entries(ops)
         .sort((a, b) => (b[1].timestamp || 0) - (a[1].timestamp || 0))
         .slice(0, 10);
@@ -303,37 +321,76 @@
         return;
       }
 
+      const isAdmin = tgUser && tgUser.id === ADMIN_ID;
+
       entries.forEach(([id, op]) => {
         const div = document.createElement("div");
         div.className = "history-item";
 
-        const dateStr = op.timestamp
+        const opDate = op.timestamp
           ? new Date(op.timestamp).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })
           : "";
 
-        const sign = op.type === "topup" ? "+" : "−";
-        const cls = op.type === "topup" ? "plus" : "minus";
-        const label = op.type === "topup" ? `Пополнение (+${op.amount})` : "Посещение (−1)";
+        let label = "";
+        let sign = "";
+        let cls = "";
+
+        if (op.type === "topup") {
+          label = `Пополнение (+${op.amount})`;
+          sign = `+${op.amount}`;
+          cls = "plus";
+        } else if (op.type === "visit") {
+          label = `Посещение ${formatShortDate(op.dateKey)} (−1)`;
+          sign = "−1";
+          cls = "minus";
+        } else if (op.type === "cancel") {
+          label = `Отмена посещения ${formatShortDate(op.dateKey)} (+1)`;
+          sign = "+1";
+          cls = "plus";
+        } else if (op.type === "adjust") {
+          const signStr = op.delta > 0 ? `+${op.delta}` : `${op.delta}`;
+          label = `Корректировка баланса: ${op.oldBalance} → ${op.newBalance} (${signStr})`;
+          sign = signStr;
+          cls = op.delta > 0 ? "plus" : "minus";
+        } else {
+          label = op.type;
+        }
+
         const who = op.byName ? `[${op.byName}]` : "";
 
-        div.innerHTML = `
-          <span>${dateStr} — <span class="action">${label}</span> ${who}</span>
-          <span class="${cls}">${sign}${op.amount}</span>
-        `;
+        const textSpan = document.createElement("span");
+        textSpan.className = "text";
+        textSpan.innerHTML = `${opDate} — <span class="action">${label}</span> ${who}`;
+        div.appendChild(textSpan);
+
+        const sumSpan = document.createElement("span");
+        sumSpan.className = cls;
+        sumSpan.textContent = sign;
+        div.appendChild(sumSpan);
+
+        if (isAdmin) {
+          const delBtn = document.createElement("button");
+          delBtn.className = "delete-op";
+          delBtn.textContent = "×";
+          delBtn.title = "Удалить запись";
+          delBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            deleteOperation(id);
+          });
+          div.appendChild(delBtn);
+        }
+
         historyList.appendChild(div);
       });
     }
 
-    // --- Действия ---
     async function toggleDay(dateKey, isMarked) {
       if (!tgUser) return;
 
       if (isMarked) {
-        // Снятие отметки с подтверждением
-        const confirmed = confirm(`Снять отметку за ${dateKey}? 1 занятие вернётся на баланс.`);
+        const confirmed = confirm(`Снять отметку за ${formatShortDate(dateKey)}? 1 занятие вернётся на баланс.`);
         if (!confirmed) return;
 
-        // Возвращаем баланс +1 и удаляем отметку
         await runTransaction(ref(db, "state/balance"), (bal) => (bal || 0) + 1);
         await remove(ref(db, `state/marked/${dateKey}`));
         await push(ref(db, "state/operations"), {
@@ -345,7 +402,6 @@
           timestamp: Date.now()
         });
       } else {
-        // Отметка посещения
         await runTransaction(ref(db, "state/balance"), (bal) => (bal || 0) - 1);
         await set(ref(db, `state/marked/${dateKey}`), {
           byId: tgUser.id,
@@ -375,7 +431,38 @@
       });
     }
 
-    // --- Навигация по месяцам ---
+    async function adjustBalance(newBalance) {
+      if (!tgUser || tgUser.id !== ADMIN_ID) return;
+      if (!Number.isInteger(newBalance)) return;
+
+      let oldBalance = null;
+      await runTransaction(ref(db, "state/balance"), (current) => {
+        if (oldBalance === null) oldBalance = current ?? 0;
+        return newBalance;
+      });
+
+      const delta = newBalance - oldBalance;
+      if (delta === 0) return;
+
+      await push(ref(db, "state/operations"), {
+        type: "adjust",
+        oldBalance,
+        newBalance,
+        delta,
+        byId: tgUser.id,
+        byName: tgUser.name,
+        timestamp: Date.now()
+      });
+    }
+
+    async function deleteOperation(opId) {
+      if (!tgUser || tgUser.id !== ADMIN_ID) return;
+      const confirmed = confirm("Удалить эту запись из журнала? Баланс и календарь не изменятся.");
+      if (!confirmed) return;
+
+      await remove(ref(db, `state/operations/${opId}`));
+    }
+
     function changeMonth(delta) {
       let m = currentMonth + delta;
       let y = currentYear;
@@ -391,7 +478,6 @@
       monthLabel.textContent = `${MONTHS[currentMonth]} ${currentYear}`;
     }
 
-    // --- Инициализация приложения ---
     async function main() {
       if (!initTelegram()) return;
 
@@ -411,7 +497,6 @@
       subscribeToData();
     }
 
-    // --- Обработчики UI ---
     $("prevMonth").addEventListener("click", () => changeMonth(-1));
     $("nextMonth").addEventListener("click", () => changeMonth(1));
     $("topUpBtn").addEventListener("click", () => {
@@ -430,6 +515,24 @@
     });
     topUpModal.addEventListener("click", (e) => {
       if (e.target === topUpModal) topUpModal.classList.add("hidden");
+    });
+
+    editBalanceBtn.addEventListener("click", () => {
+      editBalanceInput.value = globalState?.balance ?? 0;
+      editBalanceModal.classList.remove("hidden");
+    });
+    $("cancelEditBalance").addEventListener("click", () => editBalanceModal.classList.add("hidden"));
+    $("confirmEditBalance").addEventListener("click", async () => {
+      const val = parseInt(editBalanceInput.value, 10);
+      if (!Number.isInteger(val)) {
+        alert("Введите целое число");
+        return;
+      }
+      editBalanceModal.classList.add("hidden");
+      await adjustBalance(val);
+    });
+    editBalanceModal.addEventListener("click", (e) => {
+      if (e.target === editBalanceModal) editBalanceModal.classList.add("hidden");
     });
 
     main();
