@@ -101,14 +101,17 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getDatabase, ref, onValue, push, set, remove, runTransaction }
       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-    import { getAuth, signInAnonymously, onAuthStateChanged }
-      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import { getAuth, signInWithEmailAndPassword, onAuthStateChanged }
+ 	  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
     // ============================================================
     // 🔧 НАСТРОЙКИ — ЗАМЕНИТЕ ЭТИ ЗНАЧЕНИЯ НА СВОИ
     // ============================================================
     const ALLOWED_IDS = [160035018, 987654321]; // ← Два разрешённых Telegram User ID
-
+	const USER_CREDENTIALS = {
+ 	 123456789: { email: "user1@pool.local", password: "123456" },
+ 	 987654321: { email: "user2@pool.local", password: "123456" }
+	};
     const firebaseConfig = {
       apiKey: "AIzaSyCehSHx8vfJuaZyYfd-dCsDZJpvqnPyoww",
 	  authDomain: "pool-info-d1061.firebaseapp.com",
