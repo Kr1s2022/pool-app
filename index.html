@@ -201,7 +201,11 @@
     async function ensureAuth() {
 	  // Если уже вошли под нужным аккаунтом — не логинимся повторно
 	  if (auth.currentUser) return auth.currentUser;
-	
+		
+	  console.log("=== AUTH DEBUG ===");
+	  console.log("tgUser.id:", tgUser.id, "| type:", typeof tgUser.id);
+	  console.log("USER_CREDENTIALS keys:", Object.keys(USER_CREDENTIALS));
+	  console.log("Looking up:", USER_CREDENTIALS[tgUser.id]);
 	  const creds = USER_CREDENTIALS[tgUser.id];
 	  if (!creds) {
 	    throw new Error("Для вашего Telegram ID не заданы учётные данные Firebase.");
