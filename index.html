@@ -199,20 +199,16 @@
 
     // --- Аутентификация Firebase (анонимная) ---
     async function ensureAuth() {
-      return new Promise((resolve, reject) => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-          if (user) {
-            unsubscribe();
-            resolve(user);
-          } else {
-            signInAnonymously(auth).catch((err) => {
-              unsubscribe();
-              reject(err);
-            });
-          }
-        });
-      });
-    }
+	  // Если уже вошли под нужным аккаунтом — не логинимся повторно
+	  if (auth.currentUser) return auth.currentUser;
+	
+	  const creds = USER_CREDENTIALS[tgUser.id];
+	  if (!creds) {
+	    throw new Error("Для вашего Telegram ID не заданы учётные данные Firebase.");
+	  }
+	  const userCred = await signInWithEmailAndPassword(auth, creds.email, creds.password);
+	  return userCred.user;
+	}
 
     // --- Подписка на данные ---
     function subscribeToData() {
