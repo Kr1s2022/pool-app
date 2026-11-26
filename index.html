@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Бассейн — совместный учёт</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg: var(--tg-theme-bg-color, #ffffff);
+      --text: var(--tg-theme-text-color, #000000);
+      --hint: var(--tg-theme-hint-color, #999999);
+      --link: var(--tg-theme-link-color, #2481cc);
+      --button: var(--tg-theme-button-color, #2481cc);
+      --button-text: var(--tg-theme-button-text-color, #ffffff);
+      --secondary-bg: var(--tg-theme-secondary-bg-color, #f1f1f1);
+      --section-bg: var(--tg-theme-section-bg-color, #ffffff);
+      --destructive: var(--tg-theme-destructive-text-color, #e53935);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 16px; padding-bottom: 40px; min-height: 100vh; }
+    .card { background: var(--section-bg); border-radius: 16px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+    .balance-number { font-size: 42px; font-weight: 800; line-height: 1.1; }
+    .balance-label { font-size: 15px; color: var(--hint); margin-bottom: 4px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; width: 100%; padding: 14px; border-radius: 12px; border: none; font-size: 16px; font-weight: 600; cursor: pointer; background: var(--button); color: var(--button-text); margin-top: 16px; }
+    .btn:active { opacity: 0.8; }
+    .btn-secondary { background: var(--secondary-bg); color: var(--text); }
+    .calendar-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .calendar-header button { background: none; border: none; font-size: 22px; cursor: pointer; color: var(--link); padding: 8px; }
+    .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; }
+    .calendar-grid .weekday { font-size: 12px; color: var(--hint); padding: 4px 0; font-weight: 500; }
+    .day { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 12px; cursor: pointer; font-size: 15px; position: relative; background: var(--secondary-bg); color: var(--text); transition: background 0.15s; }
+    .day.empty { background: transparent; cursor: default; }
+    .day.today { outline: 2px solid var(--link); outline-offset: -2px; }
+    .day.marked { background: var(--button); color: var(--button-text); font-weight: 700; }
+    .day .who { font-size: 9px; line-height: 1; opacity: 0.85; margin-top: 2px; }
+    .history-item { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--secondary-bg); font-size: 14px; }
+    .history-item:last-child { border-bottom: none; }
+    .history-item .action { color: var(--hint); }
+    .history-item .plus { color: #2e7d32; font-weight: 600; }
+    .history-item .minus { color: var(--destructive); font-weight: 600; }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 100; }
+    .modal { background: var(--section-bg); border-radius: 20px; padding: 24px; width: 100%; max-width: 360px; }
+    .modal h3 { margin-bottom: 16px; font-size: 18px; }
+    .modal input { width: 100%; padding: 14px; border-radius: 12px; border: 2px solid var(--secondary-bg); background: var(--bg); color: var(--text); font-size: 18px; text-align: center; margin-bottom: 12px; }
+    .modal .row { display: flex; gap: 10px; }
+    .modal .row .btn { margin-top: 0; }
+    .hidden { display: none; }
+    .access-denied { text-align: center; padding: 60px 20px; }
+    .access-denied h2 { margin-bottom: 12px; color: var(--destructive); }
+    .spinner { text-align: center; padding: 60px; color: var(--hint); }
+  </style>
+</head>
+<body>
+
+  <div id="loading" class="spinner">Загрузка…</div>
+  <div id="accessDenied" class="access-denied hidden">
+    <h2>Доступ закрыт</h2>
+    <p>Это приложение доступно только двум пользователям.</p>
+    <p id="yourId" style="margin-top:16px; font-size:13px; color:var(--hint);"></p>
+  </div>
+
+  <div id="app" class="hidden">
+    <!-- Карточка баланса -->
+    <div class="card">
+      <div class="balance-label">Осталось занятий</div>
+      <div class="balance-number" id="balance">—</div>
+      <button class="btn" id="topUpBtn">Пополнить баланс</button>
+    </div>
+
+    <!-- Календарь -->
+    <div class="card">
+      <div class="calendar-header">
+        <button id="prevMonth">‹</button>
+        <strong id="monthLabel"></strong>
+        <button id="nextMonth">›</button>
+      </div>
+      <div class="calendar-grid" id="calendarGrid"></div>
+    </div>
+
+    <!-- История -->
+    <div class="card">
+      <h3 style="font-size:16px; margin-bottom:8px;">Последние операции</h3>
+      <div id="historyList"></div>
+    </div>
+  </div>
+
+  <!-- Модальное окно пополнения -->
+  <div id="topUpModal" class="modal-overlay hidden">
+    <div class="modal">
+      <h3>Пополнить баланс</h3>
+      <input type="number" id="topUpInput" value="10" min="1" step="1" />
+      <div class="row">
+        <button class="btn btn-secondary" id="cancelTopUp">Отмена</button>
+        <button class="btn" id="confirmTopUp">Пополнить</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getDatabase, ref, onValue, push, set, remove, runTransaction }
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged }
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+    // ============================================================
+    // 🔧 НАСТРОЙКИ — ЗАМЕНИТЕ ЭТИ ЗНАЧЕНИЯ НА СВОИ
+    // ============================================================
+    const ALLOWED_IDS = [160035018, 987654321]; // ← Два разрешённых Telegram User ID
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCehSHx8vfJuaZyYfd-dCsDZJpvqnPyoww",
+	  authDomain: "pool-info-d1061.firebaseapp.com",
+	  projectId: "pool-info-d1061",
+	  storageBucket: "pool-info-d1061.firebasestorage.app",
+	  messagingSenderId: "177292616672",
+	  appId: "1:177292616672:web:035cf55614fc27288dc185",
+	  measurementId: "G-8DZHJKMVRE"
+    };
+    // ============================================================
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const auth = getAuth(app);
+
+    const $ = (id) => document.getElementById(id);
+
+    // --- Элементы UI ---
+    const loadingEl = $("loading");
+    const accessDeniedEl = $("accessDenied");
+    const appEl = $("app");
+    const balanceEl = $("balance");
+    const calendarGrid = $("calendarGrid");
+    const monthLabel = $("monthLabel");
+    const historyList = $("historyList");
+    const topUpModal = $("topUpModal");
+    const topUpInput = $("topUpInput");
+
+    // --- Состояние ---
+    let tgUser = null;
+    let currentYear, currentMonth; // месяц: 0–11
+    let globalState = null;
+    let userNames = {}; // { telegramId: "Имя" }
+
+    // --- Форматирование ---
+    const MONTHS = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+    const WEEKDAYS = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
+
+    function formatDateKey(y, m, d) {
+      return `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    }
+
+    function parseDateKey(key) {
+      const [y, m, d] = key.split("-").map(Number);
+      return { y, m: m - 1, d };
+    }
+
+    // --- Инициализация Telegram ---
+    function initTelegram() {
+      const tg = window.Telegram?.WebApp;
+      if (!tg) {
+        showAccessDenied(null, "Приложение должно быть открыто внутри Telegram.");
+        return false;
+      }
+      tg.ready();
+      tg.expand();
+
+      const user = tg.initDataUnsafe?.user;
+      if (!user || !user.id) {
+        showAccessDenied(null, "Не удалось получить данные пользователя Telegram.");
+        return false;
+      }
+
+      tgUser = { id: user.id, name: user.first_name || "Пользователь" };
+      userNames[tgUser.id] = tgUser.name;
+
+      if (!ALLOWED_IDS.includes(user.id)) {
+        showAccessDenied(user.id);
+        return false;
+      }
+      return true;
+    }
+
+    function showAccessDenied(telegramId, customMessage) {
+      loadingEl.classList.add("hidden");
+      appEl.classList.add("hidden");
+      accessDeniedEl.classList.remove("hidden");
+      if (telegramId) {
+        $("yourId").textContent = `Ваш Telegram ID: ${telegramId}`;
+      } else if (customMessage) {
+        $("yourId").textContent = customMessage;
+      }
+    }
+
+    // --- Аутентификация Firebase (анонимная) ---
+    async function ensureAuth() {
+      return new Promise((resolve, reject) => {
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+          if (user) {
+            unsubscribe();
+            resolve(user);
+          } else {
+            signInAnonymously(auth).catch((err) => {
+              unsubscribe();
+              reject(err);
+            });
+          }
+        });
+      });
+    }
+
+    // --- Подписка на данные ---
+    function subscribeToData() {
+      const stateRef = ref(db, "state");
+      onValue(stateRef, (snapshot) => {
+        globalState = snapshot.val();
+        if (!globalState) {
+          // Первый запуск — создаём базовую структуру
+          set(stateRef, { balance: 0, marked: {} });
+          return;
+        }
+        renderAll();
+        loadingEl.classList.add("hidden");
+        appEl.classList.remove("hidden");
+      });
+    }
+
+    // --- Рендер ---
+    function renderAll() {
+      if (!globalState) return;
+      balanceEl.textContent = globalState.balance ?? 0;
+      renderCalendar();
+      renderHistory();
+    }
+
+    function renderCalendar() {
+      calendarGrid.innerHTML = "";
+
+      // Заголовок дней недели
+      WEEKDAYS.forEach((wd) => {
+        const el = document.createElement("div");
+        el.className = "weekday";
+        el.textContent = wd;
+        calendarGrid.appendChild(el);
+      });
+
+      const firstDay = new Date(currentYear, currentMonth, 1);
+      // Приводим к понедельнику: getDay() 0=Вс, 1=Пн, ...
+      let startOffset = firstDay.getDay() - 1;
+      if (startOffset < 0) startOffset = 6;
+
+      const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+      for (let i = 0; i < startOffset; i++) {
+        const el = document.createElement("div");
+        el.className = "day empty";
+        calendarGrid.appendChild(el);
+      }
+
+      const today = new Date();
+      const isCurrentMonth = today.getFullYear() === currentYear && today.getMonth() === currentMonth;
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const key = formatDateKey(currentYear, currentMonth, d);
+        const markInfo = globalState.marked?.[key]; // { by: telegramId, name: "..." }
+        const isMarked = !!markInfo;
+
+        const el = document.createElement("div");
+        el.className = "day";
+        if (isCurrentMonth && today.getDate() === d) el.classList.add("today");
+        if (isMarked) el.classList.add("marked");
+
+        el.innerHTML = `<span>${d}</span>`;
+        if (isMarked && markInfo.name) {
+          const who = document.createElement("span");
+          who.className = "who";
+          who.textContent = markInfo.name.slice(0, 6);
+          el.appendChild(who);
+        }
+
+        el.addEventListener("click", () => toggleDay(key, isMarked));
+        calendarGrid.appendChild(el);
+      }
+    }
+
+    function renderHistory() {
+      historyList.innerHTML = "";
+      const ops = globalState.operations;
+      if (!ops) return;
+
+      // operations — объект, ключи автоматические; берём последние 10
+      const entries = Object.entries(ops)
+        .sort((a, b) => (b[1].timestamp || 0) - (a[1].timestamp || 0))
+        .slice(0, 10);
+
+      if (entries.length === 0) {
+        historyList.innerHTML = '<p style="color:var(--hint); font-size:14px;">Пока нет операций</p>';
+        return;
+      }
+
+      entries.forEach(([id, op]) => {
+        const div = document.createElement("div");
+        div.className = "history-item";
+
+        const dateStr = op.timestamp
+          ? new Date(op.timestamp).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })
+          : "";
+
+        const sign = op.type === "topup" ? "+" : "−";
+        const cls = op.type === "topup" ? "plus" : "minus";
+        const label = op.type === "topup" ? `Пополнение (+${op.amount})` : "Посещение (−1)";
+        const who = op.byName ? `[${op.byName}]` : "";
+
+        div.innerHTML = `
+          <span>${dateStr} — <span class="action">${label}</span> ${who}</span>
+          <span class="${cls}">${sign}${op.amount}</span>
+        `;
+        historyList.appendChild(div);
+      });
+    }
+
+    // --- Действия ---
+    async function toggleDay(dateKey, isMarked) {
+      if (!tgUser) return;
+
+      if (isMarked) {
+        // Снятие отметки с подтверждением
+        const confirmed = confirm(`Снять отметку за ${dateKey}? 1 занятие вернётся на баланс.`);
+        if (!confirmed) return;
+
+        // Возвращаем баланс +1 и удаляем отметку
+        await runTransaction(ref(db, "state/balance"), (bal) => (bal || 0) + 1);
+        await remove(ref(db, `state/marked/${dateKey}`));
+        await push(ref(db, "state/operations"), {
+          type: "cancel",
+          amount: 1,
+          dateKey,
+          byId: tgUser.id,
+          byName: tgUser.name,
+          timestamp: Date.now()
+        });
+      } else {
+        // Отметка посещения
+        await runTransaction(ref(db, "state/balance"), (bal) => (bal || 0) - 1);
+        await set(ref(db, `state/marked/${dateKey}`), {
+          byId: tgUser.id,
+          name: tgUser.name
+        });
+        await push(ref(db, "state/operations"), {
+          type: "visit",
+          amount: 1,
+          dateKey,
+          byId: tgUser.id,
+          byName: tgUser.name,
+          timestamp: Date.now()
+        });
+      }
+    }
+
+    async function topUp(amount) {
+      if (!tgUser || !Number.isInteger(amount) || amount < 1) return;
+
+      await runTransaction(ref(db, "state/balance"), (bal) => (bal || 0) + amount);
+      await push(ref(db, "state/operations"), {
+        type: "topup",
+        amount,
+        byId: tgUser.id,
+        byName: tgUser.name,
+        timestamp: Date.now()
+      });
+    }
+
+    // --- Навигация по месяцам ---
+    function changeMonth(delta) {
+      let m = currentMonth + delta;
+      let y = currentYear;
+      if (m < 0) { m = 11; y--; }
+      if (m > 11) { m = 0; y++; }
+      currentMonth = m;
+      currentYear = y;
+      updateMonthLabel();
+      renderCalendar();
+    }
+
+    function updateMonthLabel() {
+      monthLabel.textContent = `${MONTHS[currentMonth]} ${currentYear}`;
+    }
+
+    // --- Инициализация приложения ---
+    async function main() {
+      if (!initTelegram()) return;
+
+      try {
+        await ensureAuth();
+      } catch (err) {
+        showAccessDenied(null, "Ошибка аутентификации Firebase. Проверьте настройки.");
+        console.error(err);
+        return;
+      }
+
+      const now = new Date();
+      currentYear = now.getFullYear();
+      currentMonth = now.getMonth();
+      updateMonthLabel();
+
+      subscribeToData();
+    }
+
+    // --- Обработчики UI ---
+    $("prevMonth").addEventListener("click", () => changeMonth(-1));
+    $("nextMonth").addEventListener("click", () => changeMonth(1));
+    $("topUpBtn").addEventListener("click", () => {
+      topUpInput.value = 10;
+      topUpModal.classList.remove("hidden");
+    });
+    $("cancelTopUp").addEventListener("click", () => topUpModal.classList.add("hidden"));
+    $("confirmTopUp").addEventListener("click", async () => {
+      const val = parseInt(topUpInput.value, 10);
+      if (Number.isInteger(val) && val > 0) {
+        topUpModal.classList.add("hidden");
+        await topUp(val);
+      } else {
+        alert("Введите целое число больше 0");
+      }
+    });
+    topUpModal.addEventListener("click", (e) => {
+      if (e.target === topUpModal) topUpModal.classList.add("hidden");
+    });
+
+    main();
+  </script>
+</body>
+</html>
